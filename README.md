@@ -88,11 +88,13 @@ Columnas agregadas para comparador:
 - `has_esim`
 - `has_sd_slot`
 - `price_text`
+- `price_currency`
+- `price_usd`
 
 ## Resultado de la corrida final
 Archivo generado:
 - `dataset/gsmarena_selected_brands_20260427_052934.csv`
-- `dataset/gsmarena_selected_brands_normalized_20260427_061527.csv`
+- `dataset/gsmarena_selected_brands_normalized_20260427_061843.csv`
 
 Métricas:
 - Filas finales: `267`
