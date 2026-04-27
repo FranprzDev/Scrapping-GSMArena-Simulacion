@@ -1,7 +1,10 @@
 ﻿import csv
+import glob
 import json
 import os
 import re
+import subprocess
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -269,6 +272,36 @@ def retry_failed_phone_fetches(session: requests.Session, failed_urls: list[str]
     }
 
 
+def latest_normalized_csv() -> str:
+    candidates = sorted(glob.glob(os.path.join("dataset", "gsmarena_selected_brands_normalized_*.csv")))
+    if not candidates:
+        return ""
+    return max(candidates, key=os.path.getmtime)
+
+
+def build_2022plus_from_normalized(src_csv: str) -> tuple[str, int]:
+    out_csv = os.path.join("dataset", "gsmarena_selected_brands_normalized_2022plus.csv")
+    with open(src_csv, encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    if not rows:
+        with open(out_csv, "w", encoding="utf-8-sig", newline="") as f:
+            f.write("")
+        return out_csv, 0
+
+    filtered = [
+        r
+        for r in rows
+        if (r.get("announced_year") or "").isdigit()
+        and int(r["announced_year"]) >= MIN_LAUNCH_YEAR_INCLUSIVE
+    ]
+    with open(out_csv, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=rows[0].keys())
+        w.writeheader()
+        w.writerows(filtered)
+    return out_csv, len(filtered)
+
+
 def main() -> None:
     os.makedirs("dataset", exist_ok=True)
     os.makedirs(os.path.join("dataset", "logs"), exist_ok=True)
@@ -509,6 +542,26 @@ def main() -> None:
         s = blank_stats[f]
         print(f"{f}: blanks={s['blanks']} pct={s['pct']}%")
     print("BLANK_CHECK_END")
+
+
+    # One-command pipeline: also normalize and build 2022+ CSV.
+    norm = subprocess.run([sys.executable, "normalize_specs_csv.py"], capture_output=True, text=True)
+    print("NORMALIZE_START")
+    if norm.stdout.strip():
+        print(norm.stdout.strip())
+    if norm.returncode != 0:
+        if norm.stderr.strip():
+            print(norm.stderr.strip())
+        print("NORMALIZE_END")
+        raise SystemExit(norm.returncode)
+
+    latest_norm = latest_normalized_csv()
+    if latest_norm:
+        plus2022_csv, rows_2022plus = build_2022plus_from_normalized(latest_norm)
+        print(f"normalized_csv: {latest_norm}")
+        print(f"normalized_2022plus_csv: {plus2022_csv}")
+        print(f"normalized_2022plus_rows: {rows_2022plus}")
+    print("NORMALIZE_END")
 
 
 if __name__ == "__main__":
