@@ -49,7 +49,7 @@ EXCLUDED_KEYWORDS = (
     "pixel c",
     "ipad",
 )
-MIN_LAUNCH_YEAR_EXCLUSIVE = 2021
+MIN_LAUNCH_YEAR_INCLUSIVE = 2022
 
 
 def clean_html_text(s: str) -> str:
@@ -390,7 +390,7 @@ def main() -> None:
                 }
             )
             continue
-        if launch_year <= MIN_LAUNCH_YEAR_EXCLUSIVE:
+        if launch_year < MIN_LAUNCH_YEAR_INCLUSIVE:
             removed_by_launch_year += 1
             log_events.append(
                 {
@@ -398,7 +398,7 @@ def main() -> None:
                     "url": model["phone_url"],
                     "phone_name": final_name,
                     "launch_year": launch_year,
-                    "threshold_exclusive": MIN_LAUNCH_YEAR_EXCLUSIVE,
+                    "threshold_inclusive": MIN_LAUNCH_YEAR_INCLUSIVE,
                 }
             )
             continue
@@ -471,7 +471,7 @@ def main() -> None:
         "filtered_non_phone": removed_non_phone,
         "filtered_by_launch_year": removed_by_launch_year,
         "filtered_missing_launch_year": removed_missing_launch_year,
-        "launch_year_threshold_exclusive": MIN_LAUNCH_YEAR_EXCLUSIVE,
+        "launch_year_threshold_inclusive": MIN_LAUNCH_YEAR_INCLUSIVE,
         "output_csv": written_file,
         "log_file": log_path,
     }
@@ -498,7 +498,7 @@ def main() -> None:
         "filtered_non_phone",
         "filtered_by_launch_year",
         "filtered_missing_launch_year",
-        "launch_year_threshold_exclusive",
+        "launch_year_threshold_inclusive",
     ]:
         print(f"{k}: {summary[k]}")
     print(f"log_file: {log_path}")
