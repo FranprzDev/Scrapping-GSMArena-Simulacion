@@ -92,11 +92,11 @@ Columnas agregadas para comparador:
 ## Resultado de la corrida final
 Archivo generado:
 - `dataset/gsmarena_selected_brands_20260427_052934.csv`
-- `dataset/gsmarena_selected_brands_normalized_20260427_055932.csv`
+- `dataset/gsmarena_selected_brands_normalized_20260427_061527.csv`
 
 Métricas:
-- Filas finales: `269`
-- Excluidos por filtro no-celular: `71`
+- Filas finales: `267`
+- Excluidos por filtro no-celular: `73`
 - Campos vacíos:
   - `phone_id`: `0.0%`
   - `phone_name`: `0.0%`
@@ -111,7 +111,7 @@ Distribución por marca:
 - infinix: 50
 - motorola: 44
 - samsung: 40
-- xiaomi: 38
+- xiaomi: 36
 
 ## Validación de calidad aplicada
 Post-proceso se verifica que no haya filas con señales de no-celular en:
@@ -122,11 +122,11 @@ Estado validación final:
 - `flagged_rows = 0` (sin tablets/watches/bands detectados).
 
 Validación CSV normalizado (blanks):
-- `display_size_in`: `4.83%`
-- `battery_mah`: `5.58%`
-- `ram_options_gb`: `5.58%`
-- `storage_options_gb`: `5.58%`
-- `main_camera_mp`: `5.58%`
+- `display_size_in`: `0.0%`
+- `battery_mah`: `0.0%`
+- `ram_options_gb`: `0.0%`
+- `storage_options_gb`: `0.0%`
+- `main_camera_mp`: `0.0%`
 - `has_5g`: `0.0%`
 - `has_nfc`: `0.0%`
 
