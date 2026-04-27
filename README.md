@@ -24,6 +24,8 @@ Y exportar un CSV en `dataset/` con specs por equipo.
 ## Script
 - Archivo: `scraper_gsmarena_selected.py`
 - Output: `dataset/gsmarena_selected_brands_YYYYMMDD_HHMMSS.csv`
+- Normalizador: `normalize_specs_csv.py`
+- Output normalizado: `dataset/gsmarena_selected_brands_normalized_YYYYMMDD_HHMMSS.csv`
 
 ## Enfoque técnico
 1. Descubre paginación por marca desde la primera página (`id="last-button"`).
@@ -64,13 +66,37 @@ Columnas:
 - `scraped_at_utc`
 - `specs_json`
 
+## Estructura del CSV normalizado
+Columnas agregadas para comparador:
+- `announced_year`
+- `status`
+- `os`
+- `chipset`
+- `cpu`
+- `gpu`
+- `display_size_in`
+- `display_resolution`
+- `display_refresh_hz`
+- `battery_mah`
+- `charging_w`
+- `ram_options_gb`
+- `storage_options_gb`
+- `main_camera_mp`
+- `selfie_camera_mp`
+- `has_5g`
+- `has_nfc`
+- `has_esim`
+- `has_sd_slot`
+- `price_text`
+
 ## Resultado de la corrida final
 Archivo generado:
 - `dataset/gsmarena_selected_brands_20260427_052934.csv`
+- `dataset/gsmarena_selected_brands_normalized_20260427_061527.csv`
 
 Métricas:
-- Filas finales: `269`
-- Excluidos por filtro no-celular: `71`
+- Filas finales: `267`
+- Excluidos por filtro no-celular: `73`
 - Campos vacíos:
   - `phone_id`: `0.0%`
   - `phone_name`: `0.0%`
@@ -85,7 +111,7 @@ Distribución por marca:
 - infinix: 50
 - motorola: 44
 - samsung: 40
-- xiaomi: 38
+- xiaomi: 36
 
 ## Validación de calidad aplicada
 Post-proceso se verifica que no haya filas con señales de no-celular en:
@@ -94,6 +120,15 @@ Post-proceso se verifica que no haya filas con señales de no-celular en:
 
 Estado validación final:
 - `flagged_rows = 0` (sin tablets/watches/bands detectados).
+
+Validación CSV normalizado (blanks):
+- `display_size_in`: `0.0%`
+- `battery_mah`: `0.0%`
+- `ram_options_gb`: `0.0%`
+- `storage_options_gb`: `0.0%`
+- `main_camera_mp`: `0.0%`
+- `has_5g`: `0.0%`
+- `has_nfc`: `0.0%`
 
 ## Nota operativa
 Si el archivo de salida está abierto (por ejemplo en Excel), el script crea automáticamente un archivo nuevo con timestamp para evitar errores de permisos.
