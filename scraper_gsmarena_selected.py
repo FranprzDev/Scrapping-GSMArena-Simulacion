@@ -37,6 +37,8 @@ RE_DATA_SPEC = re.compile(r'data-spec="([^"]+)"[^>]*>(.*?)</(?:td|span)>', re.I 
 RE_TTL_NFO = re.compile(r'<td\s+class="ttl"[^>]*>(.*?)</td>\s*<td\s+class="nfo"[^>]*>(.*?)</td>', re.I | re.S)
 RE_TAGS = re.compile(r'<[^>]+>')
 RE_WS = re.compile(r'\s+')
+RE_YEAR = re.compile(r'(20\d{2})')
+RE_PAGINATION_OF = re.compile(r'>\s*\d+\s+of\s+(\d+)\s*<', re.I)
 EXCLUDED_KEYWORDS = (
     " tab",
     "tablet",
@@ -47,6 +49,7 @@ EXCLUDED_KEYWORDS = (
     "pixel c",
     "ipad",
 )
+MIN_LAUNCH_YEAR_EXCLUSIVE = 2021
 
 
 def clean_html_text(s: str) -> str:
@@ -57,38 +60,79 @@ def clean_html_text(s: str) -> str:
     return s
 
 
-def fetch(session: requests.Session, url: str, retries: int = 3, timeout: int = 20) -> str:
+def fetch_with_meta(session: requests.Session, url: str, retries: int = 3, timeout: int = 20) -> dict:
     delay = 0.8
+    attempts = 0
+    last_error = ""
+    last_status = None
     for attempt in range(retries + 1):
+        attempts = attempt + 1
         try:
             r = session.get(url, headers=HEADERS, timeout=timeout)
+            last_status = r.status_code
             if r.status_code == 200:
-                return r.text
+                return {
+                    "ok": True,
+                    "url": url,
+                    "status": r.status_code,
+                    "attempts": attempts,
+                    "error": "",
+                    "html": r.text,
+                }
             if r.status_code in (408, 429, 500, 502, 503, 504):
                 raise requests.RequestException(f"status={r.status_code}")
-            return ""
-        except Exception:
+            return {
+                "ok": False,
+                "url": url,
+                "status": r.status_code,
+                "attempts": attempts,
+                "error": f"status={r.status_code}",
+                "html": "",
+            }
+        except Exception as exc:
+            last_error = str(exc)
             if attempt == retries:
-                return ""
+                return {
+                    "ok": False,
+                    "url": url,
+                    "status": last_status,
+                    "attempts": attempts,
+                    "error": last_error or "request_exception",
+                    "html": "",
+                }
             time.sleep(delay)
             delay *= 2
-    return ""
+
+    return {
+        "ok": False,
+        "url": url,
+        "status": last_status,
+        "attempts": attempts,
+        "error": last_error or "unknown",
+        "html": "",
+    }
 
 
 def build_brand_pages(brand_url: str, html: str) -> list[str]:
-    m = RE_LAST_PAGE.search(html)
+    # GSMArena may render attributes in different order:
+    # <a href="...p14.php" id="last-button"> or <a id="last-button" href="...p14.php">
+    m = re.search(r'<a[^>]*id="last-button"[^>]*href="([^"]+)"', html, re.I)
     if not m:
-        return [brand_url]
+        m = re.search(r'<a[^>]*href="([^"]+)"[^>]*id="last-button"', html, re.I)
 
-    last_href = m.group(1)
-    if last_href == "#":
-        return [brand_url]
+    max_page = 1
+    if m:
+        last_href = m.group(1)
+        mm = re.search(r'-p(\d+)\.php$', last_href or "")
+        if mm:
+            max_page = int(mm.group(1))
 
-    mm = re.search(r'-p(\d+)\.php$', last_href)
-    if not mm:
-        return [brand_url]
+    # Fallback from visible page counter, e.g. "4 of 14"
+    if max_page == 1:
+        pm = RE_PAGINATION_OF.search(html)
+        if pm:
+            max_page = int(pm.group(1))
 
-    max_page = int(mm.group(1))
     main_match = RE_BRAND_MAIN.search(brand_url)
     if not main_match:
         return [brand_url]
@@ -156,37 +200,134 @@ def is_non_phone_candidate(name: str, specs: dict) -> bool:
     return False
 
 
+def extract_launch_year(specs: dict) -> int | None:
+    raw = " | ".join(
+        [
+            str(specs.get("year", "")),
+            str(specs.get("announced", "")),
+            str(specs.get("released-hl", "")),
+            str(specs.get("status", "")),
+        ]
+    )
+    m = RE_YEAR.search(raw)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
+
+
+def retry_failed_phone_fetches(session: requests.Session, failed_urls: list[str], log_events: list[dict]) -> dict:
+    recovered = 0
+    still_failed = []
+    recovered_html = {}
+
+    if not failed_urls:
+        return {
+            "recovered": 0,
+            "still_failed": [],
+            "html_map": {},
+        }
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        fut_map = {
+            ex.submit(fetch_with_meta, session, u, retries=4, timeout=30): u
+            for u in failed_urls
+        }
+        for fut in as_completed(fut_map):
+            url = fut_map[fut]
+            res = fut.result()
+            if res.get("ok") and res.get("html"):
+                recovered += 1
+                recovered_html[url] = res.get("html", "")
+                log_events.append(
+                    {
+                        "event": "phone_fetch_retry_recovered",
+                        "url": url,
+                        "status": res.get("status"),
+                        "attempts": res.get("attempts"),
+                        "error": "",
+                    }
+                )
+            else:
+                still_failed.append(url)
+                log_events.append(
+                    {
+                        "event": "phone_fetch_retry_failed",
+                        "url": url,
+                        "status": res.get("status"),
+                        "attempts": res.get("attempts"),
+                        "error": res.get("error"),
+                    }
+                )
+
+    return {
+        "recovered": recovered,
+        "still_failed": still_failed,
+        "html_map": recovered_html,
+    }
+
+
 def main() -> None:
     os.makedirs("dataset", exist_ok=True)
+    os.makedirs(os.path.join("dataset", "logs"), exist_ok=True)
     out_csv = os.path.join("dataset", "gsmarena_selected_brands.csv")
+    run_ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    log_path = os.path.join("dataset", "logs", f"scrape_run_{run_ts}.jsonl")
+    log_events = []
 
     session = requests.Session()
     brand_urls = [b["url"] for b in BRANDS]
 
     brand_first_pages = {}
     for brand_url in brand_urls:
-        html = fetch(session, brand_url)
-        if html:
-            brand_first_pages[brand_url] = html
+        res = fetch_with_meta(session, brand_url)
+        if res["ok"] and res["html"]:
+            brand_first_pages[brand_url] = res["html"]
+        else:
+            log_events.append(
+                {
+                    "event": "brand_first_page_failed",
+                    "url": brand_url,
+                    "status": res.get("status"),
+                    "attempts": res.get("attempts"),
+                    "error": res.get("error"),
+                }
+            )
 
     all_listing_urls = []
     for brand_url, html in brand_first_pages.items():
         all_listing_urls.extend(build_brand_pages(brand_url, html))
 
     listing_html_map = {}
+    listing_failed_urls = []
     with ThreadPoolExecutor(max_workers=20) as ex:
-        fut_map = {ex.submit(fetch, session, u): u for u in all_listing_urls}
+        fut_map = {ex.submit(fetch_with_meta, session, u): u for u in all_listing_urls}
         for fut in as_completed(fut_map):
             u = fut_map[fut]
-            listing_html_map[u] = fut.result() or ""
+            res = fut.result()
+            listing_html_map[u] = res.get("html", "") if res.get("ok") else ""
+            if not res.get("ok"):
+                listing_failed_urls.append(u)
+                log_events.append(
+                    {
+                        "event": "listing_fetch_failed",
+                        "url": u,
+                        "status": res.get("status"),
+                        "attempts": res.get("attempts"),
+                        "error": res.get("error"),
+                    }
+                )
 
     listing_rows = []
     for page_url, html in listing_html_map.items():
         if not html:
             continue
         for brand_url in brand_urls:
-            if RE_BRAND_MAIN.search(brand_url):
-                slug = RE_BRAND_MAIN.search(brand_url).group(1)
+            m = RE_BRAND_MAIN.search(brand_url)
+            if m:
+                slug = m.group(1)
                 if f"/{slug}-phones-" in page_url or f"/{slug}-phones-f-" in page_url:
                     listing_rows.extend(parse_listing(brand_url, page_url, html))
                     break
@@ -200,15 +341,34 @@ def main() -> None:
     phone_urls = [r["phone_url"] for r in unique_models.values()]
 
     phone_html_map = {}
+    phone_failed_urls = []
     with ThreadPoolExecutor(max_workers=24) as ex:
-        fut_map = {ex.submit(fetch, session, u): u for u in phone_urls}
+        fut_map = {ex.submit(fetch_with_meta, session, u): u for u in phone_urls}
         for fut in as_completed(fut_map):
             u = fut_map[fut]
-            phone_html_map[u] = fut.result() or ""
+            res = fut.result()
+            phone_html_map[u] = res.get("html", "") if res.get("ok") else ""
+            if not res.get("ok"):
+                phone_failed_urls.append(u)
+                log_events.append(
+                    {
+                        "event": "phone_fetch_failed",
+                        "url": u,
+                        "status": res.get("status"),
+                        "attempts": res.get("attempts"),
+                        "error": res.get("error"),
+                    }
+                )
+
+    retry_result = retry_failed_phone_fetches(session, phone_failed_urls, log_events)
+    phone_html_map.update(retry_result["html_map"])
+    phone_failed_urls = retry_result["still_failed"]
 
     scraped_at = datetime.now(timezone.utc).isoformat()
     rows_out = []
     removed_non_phone = 0
+    removed_by_launch_year = 0
+    removed_missing_launch_year = 0
     for model in unique_models.values():
         html = phone_html_map.get(model["phone_url"], "")
         title, specs = ("", {})
@@ -217,6 +377,30 @@ def main() -> None:
         final_name = title or model["phone_name_listing"]
         if is_non_phone_candidate(final_name, specs):
             removed_non_phone += 1
+            continue
+
+        launch_year = extract_launch_year(specs)
+        if launch_year is None:
+            removed_missing_launch_year += 1
+            log_events.append(
+                {
+                    "event": "filtered_missing_launch_year",
+                    "url": model["phone_url"],
+                    "phone_name": final_name,
+                }
+            )
+            continue
+        if launch_year <= MIN_LAUNCH_YEAR_EXCLUSIVE:
+            removed_by_launch_year += 1
+            log_events.append(
+                {
+                    "event": "filtered_by_launch_year",
+                    "url": model["phone_url"],
+                    "phone_name": final_name,
+                    "launch_year": launch_year,
+                    "threshold_exclusive": MIN_LAUNCH_YEAR_EXCLUSIVE,
+                }
+            )
             continue
 
         rows_out.append(
@@ -271,8 +455,55 @@ def main() -> None:
             "pct": round((blanks / total) * 100, 2),
         }
 
+    summary = {
+        "event": "run_summary",
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "brands_requested": len(brand_urls),
+        "brand_first_pages_ok": len(brand_first_pages),
+        "listing_urls_expected": len(all_listing_urls),
+        "listing_urls_ok": len(all_listing_urls) - len(listing_failed_urls),
+        "listing_urls_failed": len(listing_failed_urls),
+        "phone_urls_expected": len(phone_urls),
+        "phone_urls_ok": len(phone_urls) - len(phone_failed_urls),
+        "phone_urls_failed": len(phone_failed_urls),
+        "phone_urls_recovered_on_retry": retry_result["recovered"],
+        "rows_out": len(rows_out),
+        "filtered_non_phone": removed_non_phone,
+        "filtered_by_launch_year": removed_by_launch_year,
+        "filtered_missing_launch_year": removed_missing_launch_year,
+        "launch_year_threshold_exclusive": MIN_LAUNCH_YEAR_EXCLUSIVE,
+        "output_csv": written_file,
+        "log_file": log_path,
+    }
+    log_events.append(summary)
+
+    with open(log_path, "w", encoding="utf-8") as lf:
+        for ev in log_events:
+            lf.write(json.dumps(ev, ensure_ascii=False) + "\n")
+
     print(f"DONE rows={len(rows_out)} file={written_file}")
     print(f"FILTERED_NON_PHONE={removed_non_phone}")
+    print("RUN_SUMMARY_START")
+    for k in [
+        "brands_requested",
+        "brand_first_pages_ok",
+        "listing_urls_expected",
+        "listing_urls_ok",
+        "listing_urls_failed",
+        "phone_urls_expected",
+        "phone_urls_ok",
+        "phone_urls_failed",
+        "phone_urls_recovered_on_retry",
+        "rows_out",
+        "filtered_non_phone",
+        "filtered_by_launch_year",
+        "filtered_missing_launch_year",
+        "launch_year_threshold_exclusive",
+    ]:
+        print(f"{k}: {summary[k]}")
+    print(f"log_file: {log_path}")
+    print("RUN_SUMMARY_END")
+
     print("BLANK_CHECK_START")
     for f in fields_to_check:
         s = blank_stats[f]

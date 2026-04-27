@@ -134,3 +134,8 @@ Validación CSV normalizado (blanks):
 
 ## Nota operativa
 Si el archivo de salida está abierto (por ejemplo en Excel), el script crea automáticamente un archivo nuevo con timestamp para evitar errores de permisos.
+
+## Estado del dataset
+https://www.kaggle.com/datasets/arwinneil/gsmarena-phone-dataset
+
+Descontinuado: se utilizara esto.
