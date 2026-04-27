@@ -18,7 +18,7 @@ NORM_COLUMNS = [
     'ram_options_gb','storage_options_gb',
     'main_camera_mp','selfie_camera_mp',
     'has_5g','has_nfc','has_esim','has_sd_slot',
-    'price_text'
+    'price_text','price_currency','price_usd'
 ]
 
 RE_NUM = re.compile(r'(\d+(?:\.\d+)?)')
@@ -32,6 +32,14 @@ RE_RAM_GB = re.compile(r'(\d+(?:\.\d+)?)\s*GB\s*RAM', re.I)
 RE_STORAGE_GB = re.compile(r'(\d+(?:\.\d+)?)\s*GB', re.I)
 RE_STORAGE_TB = re.compile(r'(\d+(?:\.\d+)?)\s*TB', re.I)
 RE_YEAR = re.compile(r'(20\d{2})')
+RE_PRICE_NUM = re.compile(r'(\d[\d,\.]*)')
+
+FX_TO_USD = {
+    'USD': 1.0,
+    'EUR': 1.08,
+    'GBP': 1.27,
+    'INR': 0.012,
+}
 
 
 def to_float_str(v):
@@ -80,6 +88,41 @@ def extract_first_float(pattern, text):
     return to_float_str(m.group(1))
 
 
+def parse_price_to_usd(price_text):
+    txt = (price_text or '').strip()
+    if not txt:
+        return '', ''
+
+    lower = txt.lower()
+    currency = 'USD'
+    if '€' in txt or 'eur' in lower:
+        currency = 'EUR'
+    elif '£' in txt or 'gbp' in lower:
+        currency = 'GBP'
+    elif '₹' in txt or 'inr' in lower or 'rs' in lower:
+        currency = 'INR'
+    elif '$' in txt or 'usd' in lower:
+        currency = 'USD'
+
+    nm = RE_PRICE_NUM.search(txt.replace(' ', ''))
+    if not nm:
+        return currency, ''
+
+    raw = nm.group(1)
+    if ',' in raw and '.' in raw:
+        raw = raw.replace(',', '')
+    elif ',' in raw:
+        raw = raw.replace(',', '')
+
+    try:
+        amount = float(raw)
+    except Exception:
+        return currency, ''
+
+    usd = amount * FX_TO_USD.get(currency, 1.0)
+    return currency, to_float_str(usd)
+
+
 def normalize_row(row):
     specs = json.loads(row.get('specs_json') or '{}')
 
@@ -124,6 +167,7 @@ def normalize_row(row):
     has_sd_slot = '0' if (not sd_text or sd_text == 'no') else '1'
 
     price_text = get(specs,'price')
+    price_currency, price_usd = parse_price_to_usd(price_text)
 
     out = {k: row.get(k,'') for k in BASE_COLUMNS}
     out.update({
@@ -147,12 +191,17 @@ def normalize_row(row):
         'has_esim': has_esim,
         'has_sd_slot': has_sd_slot,
         'price_text': price_text,
+        'price_currency': price_currency,
+        'price_usd': price_usd,
     })
     return out
 
 
 def latest_source_csv():
-    candidates = sorted(glob.glob(os.path.join(DATASET_DIR, 'gsmarena_selected_brands_*.csv')))
+    candidates = sorted(
+        p for p in glob.glob(os.path.join(DATASET_DIR, 'gsmarena_selected_brands_*.csv'))
+        if 'normalized' not in os.path.basename(p).lower()
+    )
     if not candidates:
         raise FileNotFoundError('No source CSV found')
     return max(candidates, key=os.path.getmtime)
