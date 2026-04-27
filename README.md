@@ -12,6 +12,15 @@ Scrapear modelos de celulares desde GSMArena Mobile para estas marcas:
 
 Y exportar un CSV en `dataset/` con specs por equipo.
 
+## Fuentes por marca
+- Apple: https://m.gsmarena.com/apple-phones-48.php
+- Google: https://m.gsmarena.com/google-phones-107.php
+- Honor: https://m.gsmarena.com/honor-phones-121.php
+- Infinix: https://m.gsmarena.com/infinix-phones-119.php
+- Motorola: https://m.gsmarena.com/motorola-phones-4.php
+- Samsung: https://m.gsmarena.com/samsung-phones-9.php
+- Xiaomi: https://m.gsmarena.com/xiaomi-phones-80.php
+
 ## Script
 - Archivo: `scraper_gsmarena_selected.py`
 - Output: `dataset/gsmarena_selected_brands_YYYYMMDD_HHMMSS.csv`
